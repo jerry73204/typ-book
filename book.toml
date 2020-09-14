@@ -1,0 +1,6 @@
+[book]
+authors = ["jerry73204"]
+language = "en"
+multilingual = false
+src = "src"
+title = "TYP Book"
