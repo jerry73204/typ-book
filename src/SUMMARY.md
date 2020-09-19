@@ -1,4 +1,5 @@
 # Summary
 
-- [Chapter 1](./chapter_1.md)
-- [Chapter 2](./chapter_2.md)
+- [Getting Started](./chapter_1.md)
+- [Type Matching](./chapter_2.md)
+- [Work with Typenum](./chapter_3.md)
