@@ -6,13 +6,13 @@ It enables you to realize complex logics in types and gain the advantage of type
 
 ## Type-level Programming Basics
 
-Rust already provides the capability of type level programming to some degree, but in an indirect way.
+Rust already provides the capability of type level programming to some degree, but done in an indirect way.
+The section will take a glance at how type level programming can be done.
 Let's start by a traffic light state machine to see how it could be done in Rust.
 
-When we build a state machine, we usually encode the `Green`, `Yellow` and `Red` states into an enum,
+To build a traffic light state machine, we usually encode the `Green`, `Yellow` and `Red` states into an enum,
 and define a transition function `next()` to compute change of states.
-
-To leverage it to type level, we encode the states by types instead of enums.
+To leverage it to type level, we define types of states instead of enums of states.
 In this way, `Green`, `Yellow` and `Red` become three distinct types.
 
 ```rust
@@ -79,7 +79,7 @@ That's TYP comes to our rescue!
 
 ## Using TYP
 
-With TYP, the implementation becomes more compact. It helps you write _type operators_ as though you are writing Rust as usual.
+With TYP, the implementation becomes more compact. You can write _type operators_ as though you are writing Rust as usual.
 
 ```rust
 typ! {
@@ -93,8 +93,8 @@ typ! {
 }
 ```
 
-TYP is in fact a transcompiler. It translates the code into an actual a trait and a series of impl blocks.
-You can _call_ the operator by the trait `Next` or an alias `NextOp`.
+the `typ!` macro is a transcompiler that translates the code into an actual a trait and a series of impl blocks.
+The the same thing we've done earlier. Similarly, we _call_ the operator by the trait `Next` or an alias `NextOp`.
 
 ```rust
 type Outcome1 = <Green as Next>::Output; // Outcome == Yellow
@@ -116,11 +116,11 @@ The signature is composed into several parts.
 - `-> State`: It restricts the output type must implement the `State` trait.
 
 
-Next, look at the `match` block. It is similar to vanilla Rust, but we have to understand it differently.
-It compares if the input type can be derived to one of the enumerated types.
+Next, look at the `match` block. It is similar to vanilla Rust, but should be understood in different way.
+It compares if the input type can be derived to one of the listed types.
 It  does not require you to exhause all possible types, nor check if the same type is matched twice.
 
-Our example is straightforward. We simply check `input` is one of `Green`, `Yellow`, `Red`.
+Our example simply checks `input` is one of `Green`, `Yellow`, `Red`.
 
 ```rust
 match input {
@@ -130,7 +130,8 @@ match input {
 }
 ```
 
-You can choose to match only `Green` instead. In this case, the code only compiles only when `input` is `Green`.
+You can choose to match only `Green` instead. In this case, the code only compiles only when `input` is `Green`,
+and emits compile error when it is other than `Green`.
 
 ```rust
 match input {
