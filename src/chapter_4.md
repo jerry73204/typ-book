@@ -1,143 +1,79 @@
-# Type Matching
+# Type Composition
 
-In this chapter, we are going to construct a list, which contains arbitrary number of distinct types.
-Similar to `Vec<T>`, but in type level. We will learn the concept of advanced matching and recursive trait operators.
+Type composition is a useful feature to glue up types together.
+The chapter will present tiny examples to show several ways to compose types.
 
-## Type-level List
+## Type Substitution
 
-We construct the typed list with two components: an intermediate node and an end-of-list marker.
-
-- `Cons<Item, Next>` is an intermediate node. The `Item` holds the type stored in this node, while `Next` is the remaining list.
-- `Nil` is the end-of-list marker.
-
-We can have a list of types like this.
-
-```rust
-type L = Cons<u8, Cons<u16, Cons<u32, Nil>>>;
-```
-
-We define `Cons` and `Nil` as zero-sized structs shown below.
-A small detail is that because `Cons<Item, Next>` has two generics, Rust requires at least one field has the generic type.
-We use `PhantomData` to avoid storing actual data.
-
-```rust
-trait List {}
-impl<Item, Next: List> List for Cons<Item, Next> {}
-impl List for Nil {}
-
-struct Cons<Item, Next: List> {
-    _phantom: PhantomData<(Item, Next)>
-}
-struct Nil;
-```
-
-## Access the First Element: Argument Type Matching
-
-How to obtain the first item of the list?
-If we write the Rust as usual, we need to check if the list is empty before we access the first item.
-Here we go on a different mindset. Instead of checking the list explicitly, we only accept non-empty lists by matching the type.
-
-To elborate, non-empty lists can be `Cons<X, Nil>` or `Cons<X, Cons<Y, Nil>>` but cannot be `Nil`.
-We can ensure the input list has the pattern `Cons<item, next>` in the argument.
+TYP always substitutes variables in generic places to actual types.
+For example, we can write a operator that build complex types.
 
 ```rust
 typ! {
-    pub fn First<item, next: List>(Cons::<item, next>: List) {
-        item
+    fn Wrap<input>(input: _) {
+        let first = Option::<Box<input>>;
+        let second = Box::<Option<input>>;
+        (first, second)  // produces (Option<Box<input>>, Box<Option<input>>)
     }
 }
 ```
 
-To verify our implementation, we need a utility trait `Same` that compares if two types are equal.
+Note that there is no move semantics and no borrow checker in TYP. Whenever a substitution occurs, it simply copies the type.
+In our example, it copies the `input` value to `first` and `second.`
 
-```rust
-pub trait Same<Lhs, Rhs> {
-    type Output;
-}
-impl<T> Same<T, T> for () {
-    type Output = ();
-}
-
-type SameOp<Lhs, Rhs> = <() as Same<Lhs, Rhs>>::Output;
+```
+let first = Option::<Box<input>>;
+let second = Box::<Option<input>>;
 ```
 
-Now we make use of `Same` to see if `FirstOp` actually works.
+## Work with Traits
+
+TYP also supports type generics on traits. For example, let's add up two types using standard library's `Add`.
 
 ```rust
-type Input = Cons<u8, Cons<u16, Cons<u32, Nil>>>;
-type Outpu = FirstOp<List>;
-type Void = SameOp<Output, u8>;
-```
+use core::ops::Add;
 
-## Access the Last Element: In-place Generics and Recursion
-
-How about accessing the last item of the list? Apart from empty lists, we check not only if the list is empty,
-but also check if last node of the list is reached.
-We can consider the cases that the list has exactly one or more than one items. That is, we expect the list is one of the following two types.
-
-- `Cons::<first, Nil>`: The list contains exactly one item, which is also the last node.
-- `Cons::<first, Cons<second, next>>`: The list contains at least two items.
-
-We use `match` for type matching. If it has one item, return the type immediately. Otherwise, start a recursive call on remaining list to find the last item.
-
-```rust
 typ! {
-    fn Last<input>(input: List) {
-        match input {
-            #[generics(first)]
-            Cons::<first, Nil> => first,
-            #[generics(first, second, next: List)]
-            Cons::<first, Cons::<second, next>> => {
-                let remaining: List = Cons::<second, next>;
-                Last(remaining)
-            }
-        }
+    fn ComputeAdd<input>(lhs: _, rhs: _) {
+        <lhs as Add<rhs>>::Output
     }
 }
 ```
 
-You can see the extra attribute like this.
-
-```rust
-#[generics(first, second, next: List)]
-Cons::<first, Cons::<second, next>> => { /* .. */ }
-```
-
-That's because when we try to match `Cons::<first, Cons::<second, next>>`, the types of the `first`, `second` and `next` are not known yet.
-The attribute tells the compiler that the names are type generics rather than exact types.
-
-
-## Type Captureing
-
-Let's move on the next example. Given two lists, can we assert that their first items are the same type?
-It's true for `Cons<u8, Nil>` and `Cons<u8, Cons<u16, Nil>>` for example, but not for `Cons<u8, Nil>` and `Cons<u16, Cons<u32, Nil>>`.
-
-To say the first items are the same , we respectively decompose the first and second lists into the forms `Cons::<item, lhs_next>` and `Cons::<item, rhs_next>`.
-The same name `item` on both sides marks they are the same type.
-
-Our implementation goes in two steps.
-
-1. Match if the first list has the type `Cons::<item, lhs_next>`.
-2. Match if the second list has the type `Cons::<item, rhs_next>`, where `item` comes from the first list.
-
-Let's see how it can be done in code.
+The type `<lhs as Add<rhs>>::Output` reads "Get the associated type `Output` of `Add<rhs>` trait implemented on `lhs` type". It is a bit verbose.
+It can be abbreviated to the code below. Here `lhs.Add(rhs)` is a syntactic sugar of `<lhs as Add<rhs>>::Output`. You can write it as though you're calling a trait.
 
 ```rust
 typ! {
-    fn Last<lhs, rhs>(lhs: List, rhs: List) {
-        match lhs {
-            #[generics(item, lhs_next: List)]
-            Cons::<item, lhs_next> => {
-                match rhs {
-                    #[generics(rhs_next: List)]
-                    #[capture(item)]
-                    Cons::<item, rhs_next> => ()
-                }
-            }
-        }
+    fn ComputeAdd<input>(lhs: _, rhs: _) {
+        lhs.Add(rhs)
     }
 }
 ```
 
-The attribute `#[capture(item)]` tells that the `item` in the pattern `Cons::<item, rhs_next>` comes from the first list.
-In this way, the code compiles only when both lists are non-empty and have first items are the same type.
+Furthermore, we can compose several several type operators together by _calling_ them.
+
+```rust
+typ! {
+    fn MakeBox<input>(input: _) {
+        Box::<input>
+    }
+
+    fn MakeOption<input>(input: _) {
+        Option::<input>
+    }
+
+    fn MakeOptionBox<input>(input: _) {
+        MakeOption(MakeBox(input))
+    }
+}
+```
+
+The call `MakeBox(input)` is in fact an abbreviation of `<() as MakeBox<input>>::Output`.
+Hence, the following writing is basically the same.
+
+```rust
+fn MakeOptionBox<input>(input: _) {
+    <() as MakeOption<<() as MakeBox<input>>::Output>>::Output
+}
+```

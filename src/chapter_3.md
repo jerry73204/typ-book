@@ -1,4 +1,4 @@
-# Work with Typenum
+# Arithmetic
 
 TYP has first-class support to [typenum](https://docs.rs/typenum/).
 It provides syntactic sugars to write integer literals and operators.
