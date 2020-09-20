@@ -6,14 +6,14 @@ It enables you to realize complex logics in types and gain the advantage of type
 
 ## Type-level Programming Basics
 
-Rust already provides the capability of type level programming to some degree, but done in an indirect way.
-The section will take a glance at how type level programming can be done.
-Let's start by a traffic light state machine to see how it could be done in Rust.
+Rust already has the capability of type level programming to some degree, but is done indirectly.
+We will take a glance at the old school way to write _type operators_ to understand the concepts.
+In later chapter, we will learn TYP to write in more compact syntax.
+Let's start by building a traffic light machine.
 
-To build a traffic light state machine, we usually encode the `Green`, `Yellow` and `Red` states into an enum,
-and define a transition function `next()` to compute change of states.
-To leverage it to type level, we define types of states instead of enums of states.
-In this way, `Green`, `Yellow` and `Red` become three distinct types.
+To represent the states of the traffic light, we usualy encode the `Green`, `Yellow` and `Red` states into an enum.
+But now we're doing type programming. We manipulate types instead of enum values.
+We define each state as a type instead of an enum variant to leverage it to type level.
 
 ```rust
 trait State {}
@@ -26,12 +26,34 @@ struct Green;
 struct Yellow;
 ```
 
-How could be leverage the `next` transition function to type level?
-It means We have to define a function-like something that take `Green`, `Yellow` and `Red` types and produce a new type.
+To compute transition of states, we need a function-like something `fn next(State) -> State`.
+Unlike writing a function as usual, it should be able to take `Green`, `Yellow` and `Red` input types and produce a new type.
 
 Here we abuse a Rust feature called _associated types_. Whenever you implement a trait on a type, you can bind a associated type on the implementation.
-As you might have guessed, we realize the transition function as a trait `Next`.
-To bind the output type `Yellow` to an input type `Green`, we write the implementation `impl Next on Green` and associate the `Yellow` within it.
+It is common in Rust standard library, for example, the `Add ` trait has an associated `Output` type.
+
+```rust
+pub trait Add<Rhs = Self> {
+    type Output;
+    // omit..
+}
+
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Add for Point {
+    type Output = Self;
+    // omit..
+}
+```
+
+As you might have guessed, we realize the transition function as a trait. Let name it `Next` here.
+We write `impl Next on Green` block and bind associate the type `type Output = Yellow` within it.
+Such that the output type `Yellow` is associated to the input type `Green`.
 
 ```rust
 trait Next
@@ -42,10 +64,6 @@ where
     type Output;
 }
 
-impl Next for Red {
-     type Output = Green;
-}
-
 impl Next for Green {
      type Output = Yellow;
 }
@@ -53,35 +71,43 @@ impl Next for Green {
 impl Next for Yellow {
      type Output = Red;
 }
+impl Next for Red {
+     type Output = Green;
+}
 ```
 
 You may come up with a question: how to _call_ this kind of function?
-We use the qualified syntax to achieve it.
+We use the qualified syntax to do this job.
 
 ```rust
 type Outcome = <Green as Next>::Output; // Outcome == Yellow
 ```
 
 The code reads "Get the associated `Output` type from `Next` trait implemented on `Red` type".
-It is a bit verbose, but actually works. We can save some ink by type aliasing.
+It is a bit verbose, but actually works. The compiler will find the appropriate implementation and compute the output type for you.
+
+
+We can make the _trait call_ less verbose by by type aliasing.
 
 ```rust
-// define the alias
+// define the type alias
 type NextOp<Input> = <Input as Next>::Output;
 
-// So we can write this
-type Outcome = NextOp<Green>; // Outcome == Yellow
+// so we can write this
+type Outcome = NextOp<Green>;
 ```
 
 That's the way the type-level programming is done in Rust. As you can see, the tiny state machine takes many lines of code.
-Imagine you're going to process more complex types, such as addition of two type level numbers. Writing it could be tedious.
-That's TYP comes to our rescue!
+Imagine you're working on a more complex types, such as type level integers. It could be tedious. That's TYP comes to our rescue!
 
 ## Using TYP
 
-With TYP, the implementation becomes more compact. You can write _type operators_ as though you are writing Rust as usual.
+TYP helps you write type-level functions, or _type operators_, as though you're writing Rust functions as usual.
+Let's rewrite the state transition type operator.
 
 ```rust
+use typ::typ; // import the macro
+
 typ! {
     fn Next<input>(input: State) -> State {
         match input {
@@ -93,48 +119,20 @@ typ! {
 }
 ```
 
-the `typ!` macro is a transcompiler that translates the code into an actual a trait and a series of impl blocks.
-The the same thing we've done earlier. Similarly, we _call_ the operator by the trait `Next` or an alias `NextOp`.
+The `typ!` macro is a transcompiler that translates the code into traits and impl blocks.
+Just the same thing we've done in old school. The example produces the trait `Next` and a corresponding type alias `NextOp`.
+We invoke the type operator in the same way.
 
 ```rust
-type Outcome1 = <Green as Next>::Output; // Outcome == Yellow
-type Outcome2 = NextOp<Green>; // Outcome == Yellow
+type Outcome1 = <Green as Next>::Output; // Outcome1 == Yellow
+type Outcome2 = NextOp<Green>; // Outcome2 == Yellow
 ```
 
-Let's see the difference from Rust. Look at the signature first.
+As you can see, TYP adopts the Rust syntax, but the context is totally different. Look at the signature.
 
 ```rust
 fn Next<input>(input: State) -> State
 ```
 
-Here the `input` argument is a type instead of a value, while `State` is a trait bound instead of a type.
-The signature is composed into several parts.
-
-- `Next`: The name of the type operator.
-- `input`: Type generics. They are placeholders that will be filled into actual types.
-- `(input: State)`: Type arguments. The `input` is the input type happens to be a generic. The bound `input: State` ensures the argument must implements the `State` trait.
-- `-> State`: It restricts the output type must implement the `State` trait.
-
-
-Next, look at the `match` block. It is similar to vanilla Rust, but should be understood in different way.
-It compares if the input type can be derived to one of the listed types.
-It  does not require you to exhause all possible types, nor check if the same type is matched twice.
-
-Our example simply checks `input` is one of `Green`, `Yellow`, `Red`.
-
-```rust
-match input {
-    Green => Yellow,
-    Yellow => Red,
-    Red => Green,
-}
-```
-
-You can choose to match only `Green` instead. In this case, the code only compiles only when `input` is `Green`,
-and emits compile error when it is other than `Green`.
-
-```rust
-match input {
-    Green => Yellow,
-}
-```
+The `input` argument is a type instead of a value, while `State` is a trait bound instead of a type.
+Also, the `match` compares the types instead of values. In the next chapter, we will explain in details.

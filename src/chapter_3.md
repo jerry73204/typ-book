@@ -1,6 +1,8 @@
 # Work with Typenum
 
 TYP has first-class support to [typenum](https://docs.rs/typenum/).
+It provides syntactic sugars to write integer literals and operators.
+They are expanded to actual typenum types and TYP adds appropriate trait bounds for you.
 
 ## Integer Literals
 
@@ -70,3 +72,13 @@ typ! {
     }
 }
 ```
+
+## Table of Translations
+
+Item | Syntax example | Translation example
+--- | --- | ---
+Signed integers | `0`, `-2`, `3i` | `Z0`, `NInt<UInt<UInt<UTerm, B1>, B0>>`, `PInt<UInt<UInt<UTerm, B1>, B1>>`
+Unsigned integers | `0u`, `1u` | `UTerm`, `UInt<UTerm, B1>`
+Binary operators | `Lhs + Rhs`, and `-`, `*`, `/` | `<lhs as Add<rhs>>::Output`, `<lhs as Sub<rhs>>::Output`, `<lhs as Mul<rhs>>::Output`, `<lhs as Div<rhs>>::Output`,
+Unary operators | `-Value`, `!Value`, `*Value` | `<Value as Neg>::Output`, `<Value as Not>::Output`, `<Value as Deref>::Target`
+Indexing operator | `Value[Idx]` | `<Value as Index<Idx>>::Output`

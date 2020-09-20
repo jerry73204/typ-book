@@ -1,143 +1,159 @@
-# Type Matching
+# Type Operators and Trait Bounds
 
-In this chapter, we are going to construct a list, which contains arbitrary number of distinct types.
-Similar to `Vec<T>`, but in type level. We will learn the concept of advanced matching and recursive trait operators.
+_Type operators_ are type-level functions that transform the types.
+You can define variables with appropriate trait bounds, and construct the control flow inside the operator.
+They are eventually translated to traits. The chapter will cover the basic components and explain how the translation works.
 
-## Type-level List
+## The Function Signature
 
-We construct the typed list with two components: an intermediate node and an end-of-list marker.
-
-- `Cons<Item, Next>` is an intermediate node. The `Item` holds the type stored in this node, while `Next` is the remaining list.
-- `Nil` is the end-of-list marker.
-
-We can have a list of types like this.
+Let's continue to the revised version traffic light state transition function.
+It takes an input state and a boolean value that determines whether to change the state,
+and produces output accordingly.
 
 ```rust
-type L = Cons<u8, Cons<u16, Cons<u32, Nil>>>;
-```
+use typenum::Bit;
 
-We define `Cons` and `Nil` as zero-sized structs shown below.
-A small detail is that because `Cons<Item, Next>` has two generics, Rust requires at least one field has the generic type.
-We use `PhantomData` to avoid storing actual data.
-
-```rust
-trait List {}
-impl<Item, Next: List> List for Cons<Item, Next> {}
-impl List for Nil {}
-
-struct Cons<Item, Next: List> {
-    _phantom: PhantomData<(Item, Next)>
-}
-struct Nil;
-```
-
-## Access the First Element: Argument Type Matching
-
-How to obtain the first item of the list?
-If we write the Rust as usual, we need to check if the list is empty before we access the first item.
-Here we go on a different mindset. Instead of checking the list explicitly, we only accept non-empty lists by matching the type.
-
-To elborate, non-empty lists can be `Cons<X, Nil>` or `Cons<X, Cons<Y, Nil>>` but cannot be `Nil`.
-We can ensure the input list has the pattern `Cons<item, next>` in the argument.
-
-```rust
 typ! {
-    pub fn First<item, next: List>(Cons::<item, next>: List) {
-        item
+    fn Next<input, change>(input: State, change: Bit) -> State {
+        let output: State = if change {
+            match input {
+                Green => Yellow,
+                Yellow => Red,
+                Red => Green,
+            }
+        } else {
+            input
+        };
+        output
     }
 }
 ```
 
-To verify our implementation, we need a utility trait `Same` that compares if two types are equal.
+The function signature is comprised of these parts:
+
+- **Name** `Next`.
+- **Type generic list** `<input, change>`. They are placeholders to be filled in types.
+- **Type argument list** `(input: State, chagne: Bit)`. The colon in `input: State` means `input` has a `State` trait bound.
+- **Output trait bound** `-> State` restricts the output type must implement the `State` trait. It is optional.
+
+You can see the type arguments `(input: State, change: Bit)` repeat the generics `<input, change>`.
+That's because the arguments are happened to be generics in this example. Type arguments can be more than generics.
+We'll discuss it in later chapters.
+
+## Invoke the Type Operator
+
+The `typ!` macro translate type operators into traits. It becomes the form:
 
 ```rust
-pub trait Same<Lhs, Rhs> {
+trait Next<arguments, ..> {
     type Output;
 }
-impl<T> Same<T, T> for () {
-    type Output = ();
+
+impl<generics, ..> Next<arguments, ..> for () {
+    type Output = /* computation.. */;
 }
-
-type SameOp<Lhs, Rhs> = <() as Same<Lhs, Rhs>>::Output;
 ```
 
-Now we make use of `Same` to see if `FirstOp` actually works.
+There are two ways to invoke the computation: Using the trait directly or using the type alias.
 
 ```rust
-type Input = Cons<u8, Cons<u16, Cons<u32, Nil>>>;
-type Outpu = FirstOp<List>;
-type Void = SameOp<Output, u8>;
+use typenum::{B0, B1};
+
+type Outcome1 = <() as Next<Green, B1>>::Output; // Outcome1 == Yellow
+type Outcome2 = NextOp<Yellow, B0>; // Outcome2 == Red
 ```
 
-## Access the Last Element: In-place Generics and Recursion
 
-How about accessing the last item of the list? Apart from empty lists, we check not only if the list is empty,
-but also check if last node of the list is reached.
-We can consider the cases that the list has exactly one or more than one items. That is, we expect the list is one of the following two types.
+## Trait Bounds
 
-- `Cons::<first, Nil>`: The list contains exactly one item, which is also the last node.
-- `Cons::<first, Cons<second, next>>`: The list contains at least two items.
-
-We use `match` for type matching. If it has one item, return the type immediately. Otherwise, start a recursive call on remaining list to find the last item.
+The first places to put trait bounds is inside the function signature.
+You can add trait bounds to generics, type arguments, return type and extra where clauses.
+We can extend the example like the following. Many trait bounds are repeated but here is just for example.
 
 ```rust
-typ! {
-    fn Last<input>(input: List) {
-        match input {
-            #[generics(first)]
-            Cons::<first, Nil> => first,
-            #[generics(first, second, next: List)]
-            Cons::<first, Cons::<second, next>> => {
-                let remaining: List = Cons::<second, next>;
-                Last(remaining)
-            }
-        }
+fn Next<input: State, change: Bit>(input: State, change: Bit) -> State
+where
+    input: State,
+    change: Bit,
+```
+
+You can also omit the trait bounds. In argument places, put the underscore `_` to omit trait bounds.
+
+```rust
+fn Next<input, change>(input: _, change: _)
+```
+
+Another place to put trait bounds is on the local variables.
+In our example, you can find:
+
+```rust
+let output: State = if change { .. } else { .. };
+```
+
+## Translation of Type Operators
+
+Type oeprators are translated to a series of traits and impl blocks with appropriate trait bounds.
+It covers the following items:
+
+- The main trait `trait Next` for the entry point of the computation.
+- The type alias `type NextOp` for invoking the main trait.
+- Other traits and impl items that are necessary for `if` and `match` branching.
+
+Only the main trait and its alias are public, while others are wrapped inside a private module.
+So after the `typ!` macro expansion, our example will look like the following.
+
+
+```rust
+type NextOp<input, change> = <() as Next<input, change>>::Output; // the type alias
+use __TYP_mod_Next::Next; // the trait
+
+// actual type computations are wrapped inside a mod
+mod __TYP_mod_Next {
+    pub trait Next<input, change>
+    where
+        input: State,
+        change: Bit,
+        Self::Output: State
+    {
+        type Output;
+    }
+
+    impl<input, change> Next<input, change> for ()
+    where
+        input: State,
+        change: Bit,
+        (): NextIf<input, change, change>,
+        <() as NextIf<input, change, change>>::Output: State,
+    {
+        type Output = <() as NextIf<input, change, change>>::Output;
+    }
+
+    pub trait NextIf<input, change, if_condition>
+    where
+        input: State,
+        change: Bit,
+        if_condition: Bit,
+        Self::Output: State
+    {
+        type Output;
+    }
+
+    impl<input, change> NextIf<input, change, B1> for ()
+    where
+        input: State,
+        change: Bit,
+        ... // omit
+    {
+        type Output = /* omit */;
+    }
+
+    impl<input, change> NextIf<input, change, B0> for ()
+    where
+        input: State,
+        change: Bit,
+        ... // omit
+    {
+        type Output = /* omit */;
     }
 }
 ```
-
-You can see the extra attribute like this.
-
-```rust
-#[generics(first, second, next: List)]
-Cons::<first, Cons::<second, next>> => { /* .. */ }
-```
-
-That's because when we try to match `Cons::<first, Cons::<second, next>>`, the types of the `first`, `second` and `next` are not known yet.
-The attribute tells the compiler that the names are type generics rather than exact types.
-
-
-## Type Captureing
-
-Let's move on the next example. Given two lists, can we assert that their first items are the same type?
-It's true for `Cons<u8, Nil>` and `Cons<u8, Cons<u16, Nil>>` for example, but not for `Cons<u8, Nil>` and `Cons<u16, Cons<u32, Nil>>`.
-
-To say the first items are the same , we respectively decompose the first and second lists into the forms `Cons::<item, lhs_next>` and `Cons::<item, rhs_next>`.
-The same name `item` on both sides marks they are the same type.
-
-Our implementation goes in two steps.
-
-1. Match if the first list has the type `Cons::<item, lhs_next>`.
-2. Match if the second list has the type `Cons::<item, rhs_next>`, where `item` comes from the first list.
-
-Let's see how it can be done in code.
-
-```rust
-typ! {
-    fn Last<lhs, rhs>(lhs: List, rhs: List) {
-        match lhs {
-            #[generics(item, lhs_next: List)]
-            Cons::<item, lhs_next> => {
-                match rhs {
-                    #[generics(rhs_next: List)]
-                    #[capture(item)]
-                    Cons::<item, rhs_next> => ()
-                }
-            }
-        }
-    }
-}
-```
-
-The attribute `#[capture(item)]` tells that the `item` in the pattern `Cons::<item, rhs_next>` comes from the first list.
-In this way, the code compiles only when both lists are non-empty and have first items are the same type.
