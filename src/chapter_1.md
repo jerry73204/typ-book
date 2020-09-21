@@ -83,7 +83,7 @@ We use the qualified syntax to do this job.
 type Outcome = <Green as Next>::Output; // Outcome == Yellow
 ```
 
-The code reads "Get the associated `Output` type from `Next` trait implemented on `Red` type".
+The code reads "Get the associated `Output` type from `Next` trait implemented on `Green` type".
 It is a bit verbose, but actually works. The compiler will find the appropriate implementation and compute the output type for you.
 
 
